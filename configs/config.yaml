@@ -1,0 +1,20 @@
+wandb:
+  project: nbody_to_hydro
+  entity: symmetry_group
+  mode: online
+
+training:
+  lr: 1e-3
+  epochs: 300
+  val_every: 10
+
+model:
+  model: egnn
+  width: 64
+  n_layers: 4
+
+dataset:
+  path: '/network/scratch/t/tara.akhoundsadegh/cosmo_map/'
+  threshold: 0.16
+  frac_val: 0.2
+  frac_test: 0
