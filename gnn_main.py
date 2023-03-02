@@ -59,9 +59,11 @@ def main(cfg: DictConfig):
 
 
     # %%
-    node_feat_dim = 1
+    node_feat_dim = 2
+    edge_feat_dim = 1
     if cfg.model.model == 'egnn':
-        model = EGNN(node_feat_dim, cfg.model.width, cfg.model.width, n_layers=cfg.model.n_layers).to(device)
+        model = EGNN(node_feat_dim, cfg.model.width, cfg.model.width,
+                     n_layers=cfg.model.n_layers, edge_feat_size=edge_feat_dim).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.training.lr)
 
@@ -75,10 +77,11 @@ def main(cfg: DictConfig):
             optimizer.zero_grad()
             # Random node features
             #node_features = torch.rand(graph.number_of_nodes(), node_feat_dim, device=device)
-            log_mass = torch.log(graph.ndata['nbody_mass'][:,None])
-            norm_log_mass = (log_mass - (log_mass.mean())) / log_mass.std()
-            node_features = norm_log_mass
-            _, x = model(graph, node_features, graph.ndata['nbody_pos'])
+            nbody_norm_log_mass = graph.ndata['nbody_norm_log_mass']
+            nbody_vel_sqr = graph.ndata['nbody_norm_log_vel_sqr']
+            node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr], dim=1)
+            edge_features = graph.edata['nbody_norm_vel_dot_prod']
+            _, x = model(graph, node_features, graph.ndata['nbody_pos'], edge_features)
 
             loss = loss_fcn(x, graph.ndata['hydro_pos'])
             loss.backward()
@@ -95,10 +98,11 @@ def main(cfg: DictConfig):
                 loss_sum = 0
                 # Validation
                 for graph_i, graph in enumerate(val_data):
-                    log_mass = torch.log(graph.ndata['nbody_mass'][:,None])
-                    norm_log_mass = (log_mass - (log_mass.mean())) / log_mass.std()
-                    node_features = norm_log_mass
-                    _, x = model(graph, node_features, graph.ndata['nbody_pos'])
+                    nbody_norm_log_mass = graph.ndata['nbody_norm_log_mass']
+                    nbody_vel_sqr = graph.ndata['nbody_norm_log_vel_sqr']
+                    node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr], dim=1)
+                    edge_features = graph.edata['nbody_norm_vel_dot_prod']
+                    _, x = model(graph, node_features, graph.ndata['nbody_pos'], edge_features)
                     loss = loss_fcn(x, graph.ndata['hydro_pos'])
                     loss_sum += loss.item()
                 wandb.log({'val_loss': loss_sum / len(val_data)})

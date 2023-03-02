@@ -164,14 +164,14 @@ class EGNNConv(nn.Module):
 
 # %%
 class EGNN(nn.Module):
-    def __init__(self, in_node_dim, mlp_h_dim, hidden_node_dim, n_layers=3):
+    def __init__(self, in_node_dim, mlp_h_dim, hidden_node_dim, n_layers=3, edge_feat_size=0):
         super().__init__()
         self.egnnconvs = nn.ModuleList()
-        self.egnnconvs.append(EGNNConv(in_node_dim, mlp_h_dim, hidden_node_dim))
+        self.egnnconvs.append(EGNNConv(in_node_dim, mlp_h_dim, hidden_node_dim, edge_feat_size=edge_feat_size))
         for i in range(n_layers - 1):
             self.egnnconvs.append(EGNNConv(hidden_node_dim, mlp_h_dim, hidden_node_dim))
-    def forward(self, graph, node_feat, coords):
+    def forward(self, graph, node_feat, coords, edge_feat=None):
         h, x = node_feat, coords
         for egnnconv in self.egnnconvs:
-            h, x = egnnconv(graph, h, x)
+            h, x = egnnconv(graph, h, x, edge_feat=edge_feat)
         return h, x
