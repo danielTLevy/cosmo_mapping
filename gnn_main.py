@@ -7,7 +7,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import dgl
-from cv_dataset import CVDataset
+from cv_dataset import CamelsDataset
 from egnn import EGNN
 from utils import periodic_difference_torch
 import wandb
@@ -19,6 +19,7 @@ import os
 from tqdm import tqdm
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 def loss_fcn(pred_coord, true_coord, nbody_coord=None):
     dist_hydro = torch.mean(periodic_difference_torch(pred_coord, true_coord)**2)
@@ -45,17 +46,17 @@ def main(cfg: DictConfig):
     #%%
     cfg = setup_wandb(cfg)
 
-    full_dataset = CVDataset(data_path=cfg.dataset.path, threshold=cfg.dataset.threshold)
+    full_dataset = CamelsDataset(data_path=cfg.dataset.path, threshold=cfg.dataset.threshold, suite=cfg.dataset.suite, sim_set=cfg.dataset.sim_set)
     split_fracs = [1 - cfg.dataset.frac_val - cfg.dataset.frac_test, cfg.dataset.frac_val, cfg.dataset.frac_test]
     train_data, val_data, test_data = dgl.data.utils.split_dataset(full_dataset, split_fracs)
 
     true_diff_sum = 0
     for graph_i, graph in enumerate(train_data):
-        print(f'Graph {graph_i}')
         true_loss = loss_fcn(graph.ndata['nbody_pos'], graph.ndata['hydro_pos'])
-        print(f'True difference: {true_loss.item()}')
         true_diff_sum += true_loss.item()
-    print(f'True difference mean: {true_diff_sum / len(train_data)}')
+    true_difference_mean = true_diff_sum / len(train_data)
+    print(f'True difference mean: {true_difference_mean}')
+    wandb.run.summary['true_difference_mean'] = true_difference_mean
 
 
     # %%

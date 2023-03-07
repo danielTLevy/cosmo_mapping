@@ -4,25 +4,32 @@ from dgl.data import DGLDataset
 import torch
 import dgl
 import numpy as np
+from tqdm import tqdm
 from utils import periodic_difference_numpy
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-class CVDataset(DGLDataset):
-    def __init__(self, data_path, threshold = 0.1):
+NUM_SIMS = {
+    'CV': 27,
+    'LH': 1000
+}
+
+class CamelsDataset(DGLDataset):
+    def __init__(self, data_path, threshold = 0.1, suite='SIMBA', sim_set='CV'):
         self.box_size = 25000
         self.data_path = data_path
+        self.suite = suite
+        self.sim_set = sim_set
         self.threshold = threshold
-        super().__init__(name='CV')
+        super().__init__(name='self.suite' + '_' + 'self.sim_set')
 
-
-    def match_indices(self, nbody_dict, hydro_dict, simulation, suite):
+    def match_indices(self, nbody_dict, hydro_dict, simulation):
         '''
         Matches nbody and hydro haloes based on halo matching data.
         Returns nbody_dict and hydro_dict with only matched haloes.
         '''
         #loading halo matching data
-        halo_matcher = self.data_path + f'halo_matcher/Nbody_{simulation}_{suite}_{simulation}.hdf5'
+        halo_matcher = self.data_path + f'halo_matcher/Nbody_{simulation}_{self.suite}_{simulation}.hdf5'
         hm = h5py.File(halo_matcher, 'r')
 
         #loading in arrays (all length N, where N is the number of matched haloes)
@@ -43,10 +50,11 @@ class CVDataset(DGLDataset):
 
         return nbody_dict, hydro_dict
 
-    def get_data(self, simulation, suite='SIMBA'):
+    def get_data(self, simulation):
+
         #loading halo CoMs
-        nbody_halo_filename = self.data_path + 'SIMBA_CV_data/' + 'nbody_sim/' + simulation + '_fof_subhalo_tab_033.hdf5'
-        hydro_halo_filename = self.data_path + 'SIMBA_CV_data/' + 'hydro_sim/' + simulation + '_fof_subhalo_tab_033.hdf5'
+        nbody_halo_filename = f'{self.data_path}/{self.suite}_{self.sim_set}_data/nbody_sim/{simulation}_fof_subhalo_tab_033.hdf5'
+        hydro_halo_filename = f'{self.data_path}/{self.suite}_{self.sim_set}_data/hydro_sim/{simulation}_fof_subhalo_tab_033.hdf5'
 
         nbody_haloes = h5py.File(nbody_halo_filename, 'r')
         hydro_haloes = h5py.File(hydro_halo_filename, 'r')
@@ -62,7 +70,7 @@ class CVDataset(DGLDataset):
         hydro_dict['Vel'] = hydro_haloes['Group/GroupVel'][:,:]
 
         # Select only matced haloes that share >60% of particles
-        nbody_dict, hydro_dict = self.match_indices(nbody_dict, hydro_dict, simulation, suite)
+        nbody_dict, hydro_dict = self.match_indices(nbody_dict, hydro_dict, simulation)
 
         # Normalize positions
         #self.box_size = nbody_haloes["Header"].attrs["BoxSize"]
@@ -112,8 +120,9 @@ class CVDataset(DGLDataset):
 
     def process(self):
         self.graphs = []
-        for i in range(27):
-            simulation = 'CV_' + str(i)
+        print("Processing graphs...")
+        for i in tqdm(range(NUM_SIMS[self.sim_set])):
+            simulation = self.sim_set + '_' + str(i)
             nbody_dict, hydro_dict = self.get_data(simulation)
             graph = self.make_graph_from_dicts(nbody_dict, hydro_dict)
             self.graphs.append(graph)
