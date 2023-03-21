@@ -99,11 +99,13 @@ def main(cfg: DictConfig):
                 loss_sum = 0
                 # Validation
                 for graph_i, graph in enumerate(val_data):
+                    graph_feature_list = [graph.Omega_m, graph.sigma_8, graph.A_SN1, graph.A_AGN1, graph.A_SN2, graph.A_AGN2]
+                    graph_features = torch.cat(graph_feature_list)[None, :]
                     nbody_norm_log_mass = graph.ndata['nbody_norm_log_mass']
                     nbody_vel_sqr = graph.ndata['nbody_norm_log_vel_sqr']
                     node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr], dim=1)
                     edge_features = graph.edata['nbody_norm_vel_dot_prod']
-                    h, x, u = model(graph, node_features, graph.ndata['nbody_pos'], edge_features)
+                    h, x, u = model(graph, node_features, graph.ndata['nbody_pos'], edge_features, graph_features)
                     loss = loss_fcn(x, graph.ndata['hydro_pos'])
                     loss_sum += loss.item()
                 wandb.log({'val_loss': loss_sum / len(val_data)})
