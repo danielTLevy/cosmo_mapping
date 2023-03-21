@@ -4,6 +4,7 @@ from dgl.data import DGLDataset
 import torch
 import dgl
 import numpy as np
+import csv
 from tqdm import tqdm
 from utils import periodic_difference_numpy
 
@@ -11,7 +12,17 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 NUM_SIMS = {
     'CV': 27,
-    'LH': 1000
+    'LH': 100
+}
+
+COSMO_PARAM_KEYS = {
+    "Omega_m",
+    "sigma_8",
+    "A_SN1",
+    "A_AGN1",
+    "A_SN2",
+    "A_AGN2",
+    "seed"
 }
 
 class CamelsDataset(DGLDataset):
@@ -38,7 +49,7 @@ class CamelsDataset(DGLDataset):
         percent_matched = hm['percent_matched'][:]     #percent of shared particles between matched haloes
         cross_match = hm["cross_match"][:]             #either 0 (didn't match both ways) or 1 (matched both ways)
         cross_match_frac_mask = (percent_matched>60) & (cross_match == 1)
-    
+
         #selecting only matched haloes
         for key in nbody_dict.keys():
             nbody_dict[key] = nbody_dict[key][nbody_halo_index]# apply indices arrays to both nbody and hydro so that
@@ -51,7 +62,6 @@ class CamelsDataset(DGLDataset):
         return nbody_dict, hydro_dict
 
     def get_data(self, simulation):
-
         #loading halo CoMs
         nbody_halo_filename = f'{self.data_path}/{self.suite}_{self.sim_set}_data/nbody_sim/{simulation}_fof_subhalo_tab_033.hdf5'
         hydro_halo_filename = f'{self.data_path}/{self.suite}_{self.sim_set}_data/hydro_sim/{simulation}_fof_subhalo_tab_033.hdf5'
@@ -93,7 +103,7 @@ class CamelsDataset(DGLDataset):
     def norm_log(self, x):
         log_x = torch.log(x)
         return (log_x - (log_x.mean())) / (log_x.std())
-    
+
     def norm(self, x):
         return (x - (x.mean())) / (x.std())
 
@@ -118,13 +128,30 @@ class CamelsDataset(DGLDataset):
 
         return graph
 
+    def get_cosmo_params(self):
+        cosmo_param_filename = f'{self.data_path}/{self.suite}_{self.sim_set}_data/CosmoAstroSeed_{self.suite}.txt'
+        self.cosmo_param_dict = {}
+        with open(cosmo_param_filename, newline='') as csvfile:
+            reader = csv.DictReader(csvfile, delimiter=' ', skipinitialspace=True)
+            for row in reader:
+                self.cosmo_param_dict[row['#Name']] = row
+
+    def add_cosmo_features(self, graph, simulation):
+        for param_name in COSMO_PARAM_KEYS:
+            graph_property = float(self.cosmo_param_dict[simulation][param_name])
+            setattr(graph, param_name, torch.Tensor([graph_property]).to(device))
+        return graph
+
     def process(self):
         self.graphs = []
+        self.get_cosmo_params()
         print("Processing graphs...")
         for i in tqdm(range(NUM_SIMS[self.sim_set])):
             simulation = self.sim_set + '_' + str(i)
             nbody_dict, hydro_dict = self.get_data(simulation)
             graph = self.make_graph_from_dicts(nbody_dict, hydro_dict)
+            # Add in cosmological parameters
+            graph = self.add_cosmo_features(graph, simulation)
             self.graphs.append(graph)
 
     def __getitem__(self, i):

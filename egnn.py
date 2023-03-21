@@ -46,13 +46,14 @@ class EGNNConv(nn.Module):
     >>> conv = EGNNConv(10, 10, 10, 2)
     >>> h, x = conv(g, node_feat, coord_feat, edge_feat)
     """
-    def __init__(self, in_size, hidden_size, out_size, edge_feat_size=0):
+    def __init__(self, in_size, hidden_size, out_size, edge_feat_size=0, graph_feat_size=0):
         super(EGNNConv, self).__init__()
 
         self.in_size = in_size
         self.hidden_size = hidden_size
         self.out_size = out_size
         self.edge_feat_size = edge_feat_size
+        self.graph_feat_size = graph_feat_size
         self.eps = 1e-30
         act_fn = nn.SiLU()
         tanh = nn.Tanh()
@@ -68,7 +69,7 @@ class EGNNConv(nn.Module):
 
         # \phi_h
         self.node_mlp = nn.Sequential(
-            nn.Linear(in_size + hidden_size, hidden_size),
+            nn.Linear(in_size + hidden_size + self.graph_feat_size, hidden_size),
             act_fn,
             nn.Linear(hidden_size, out_size)
         )
@@ -79,6 +80,13 @@ class EGNNConv(nn.Module):
             act_fn,
             nn.Linear(hidden_size, 1, bias=False),
             #tanh
+        )
+
+        # \phi_u
+        self.graph_mlp = nn.Sequential(
+            nn.Linear(graph_feat_size + hidden_size, hidden_size),
+            act_fn,
+            nn.Linear(hidden_size, hidden_size, bias=False),
         )
 
     def u_periodic_sub_v(self, src_name, dst_name, edge_name):
@@ -103,7 +111,7 @@ class EGNNConv(nn.Module):
         msg_x = self.coord_mlp(msg_h) * edges.data['x_diff']
         return {'msg_x': msg_x, 'msg_h': msg_h}
 
-    def forward(self, graph, node_feat, coord_feat, edge_feat=None):
+    def forward(self, graph, node_feat, coord_feat, edge_feat=None, graph_feat=None):
         r"""
         Description
         -----------
@@ -133,10 +141,13 @@ class EGNNConv(nn.Module):
             is the same as the input coordinate feature dimension.
         """
         with graph.local_scope():
+            n_nodes = node_feat.shape[0]
             # node feature
             graph.ndata['h'] = node_feat
             # coordinate feature
             graph.ndata['x'] = coord_feat
+            # graph feature
+            u = graph_feat
             # edge feature
             if self.edge_feat_size > 0:
                 assert edge_feat is not None, "Edge features must be provided."
@@ -155,23 +166,28 @@ class EGNNConv(nn.Module):
             h_neigh, x_neigh = graph.ndata['h_neigh'], graph.ndata['x_neigh']
 
             h = self.node_mlp(
-                torch.cat([node_feat, h_neigh], dim=-1)
+                torch.cat([node_feat, h_neigh, u.expand(n_nodes, -1)], dim=-1)
             )
-            x = coord_feat + x_neigh
 
-            return h, x,
+            u = self.graph_mlp(torch.cat([u, h.sum(dim=0, keepdim=True)], dim=-1))
+            x = coord_feat + x_neigh
+            
+            return h, x, u
 
 
 # %%
 class EGNN(nn.Module):
-    def __init__(self, in_node_dim, mlp_h_dim, hidden_node_dim, n_layers=3, edge_feat_size=0):
+    def __init__(self, in_node_dim, mlp_h_dim, hidden_node_dim, n_layers=3, edge_feat_size=0, graph_feat_size=0):
         super().__init__()
         self.egnnconvs = nn.ModuleList()
-        self.egnnconvs.append(EGNNConv(in_node_dim, mlp_h_dim, hidden_node_dim, edge_feat_size=edge_feat_size))
+        self.egnnconvs.append(EGNNConv(in_node_dim, mlp_h_dim, hidden_node_dim,
+                                       edge_feat_size=edge_feat_size,
+                                       graph_feat_size=graph_feat_size))
         for i in range(n_layers - 1):
-            self.egnnconvs.append(EGNNConv(hidden_node_dim, mlp_h_dim, hidden_node_dim))
-    def forward(self, graph, node_feat, coords, edge_feat=None):
-        h, x = node_feat, coords
+            self.egnnconvs.append(EGNNConv(hidden_node_dim, mlp_h_dim, hidden_node_dim, edge_feat_size=0, graph_feat_size=hidden_node_dim))
+    def forward(self, graph, node_feat, coords, edge_feat=None, graph_feat=None):
+        h, x, u = node_feat, coords, graph_feat
         for egnnconv in self.egnnconvs:
-            h, x = egnnconv(graph, h, x, edge_feat=edge_feat)
-        return h, x
+            h, x, u = egnnconv(graph, h, x, edge_feat=edge_feat, graph_feat=u)
+        return h, x, u
+# %%

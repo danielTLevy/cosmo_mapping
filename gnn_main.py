@@ -7,7 +7,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import dgl
-from cv_dataset import CamelsDataset
+from camels_dataset import CamelsDataset
 from egnn import EGNN
 from utils import periodic_difference_torch
 import wandb
@@ -62,9 +62,10 @@ def main(cfg: DictConfig):
     # %%
     node_feat_dim = 2
     edge_feat_dim = 1
+    graph_feat_dim = 6
     if cfg.model.model == 'egnn':
         model = EGNN(node_feat_dim, cfg.model.width, cfg.model.width,
-                     n_layers=cfg.model.n_layers, edge_feat_size=edge_feat_dim).to(device)
+                     n_layers=cfg.model.n_layers, edge_feat_size=edge_feat_dim, graph_feat_size=graph_feat_dim).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.training.lr)
 
@@ -76,14 +77,13 @@ def main(cfg: DictConfig):
         # Training
         for graph_i, graph in enumerate(train_data):
             optimizer.zero_grad()
-            # Random node features
-            #node_features = torch.rand(graph.number_of_nodes(), node_feat_dim, device=device)
+            graph_feature_list = [graph.Omega_m, graph.sigma_8, graph.A_SN1, graph.A_AGN1, graph.A_SN2, graph.A_AGN2]
+            graph_features = torch.cat(graph_feature_list)[None, :]
             nbody_norm_log_mass = graph.ndata['nbody_norm_log_mass']
             nbody_vel_sqr = graph.ndata['nbody_norm_log_vel_sqr']
             node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr], dim=1)
             edge_features = graph.edata['nbody_norm_vel_dot_prod']
-            _, x = model(graph, node_features, graph.ndata['nbody_pos'], edge_features)
-
+            h, x, u = model(graph, node_features, graph.ndata['nbody_pos'], edge_features, graph_features)
             loss = loss_fcn(x, graph.ndata['hydro_pos'])
             loss.backward()
             loss_sum += loss.item()
@@ -103,7 +103,7 @@ def main(cfg: DictConfig):
                     nbody_vel_sqr = graph.ndata['nbody_norm_log_vel_sqr']
                     node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr], dim=1)
                     edge_features = graph.edata['nbody_norm_vel_dot_prod']
-                    _, x = model(graph, node_features, graph.ndata['nbody_pos'], edge_features)
+                    h, x, u = model(graph, node_features, graph.ndata['nbody_pos'], edge_features)
                     loss = loss_fcn(x, graph.ndata['hydro_pos'])
                     loss_sum += loss.item()
                 wandb.log({'val_loss': loss_sum / len(val_data)})
