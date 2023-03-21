@@ -169,7 +169,7 @@ class EGNNConv(nn.Module):
                 torch.cat([node_feat, h_neigh, u.expand(n_nodes, -1)], dim=-1)
             )
 
-            u = self.graph_mlp(torch.cat([u, h.sum(dim=0, keepdim=True)], dim=-1))
+            u = self.graph_mlp(torch.cat([u, h.mean(dim=0, keepdim=True)], dim=-1))
             x = coord_feat + x_neigh
             
             return h, x, u
