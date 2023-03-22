@@ -12,7 +12,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 NUM_SIMS = {
     'CV': 27,
-    'LH': 100
+    'LH': 1000
 }
 
 COSMO_PARAM_KEYS = {
