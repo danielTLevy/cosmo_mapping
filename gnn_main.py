@@ -72,6 +72,7 @@ def main(cfg: DictConfig):
     epochs = cfg.training.epochs
 
     loop = tqdm(range(epochs))
+    best_val_loss = 1e10
     for epoch in loop:
         loss_sum = 0
         # Training
@@ -108,7 +109,13 @@ def main(cfg: DictConfig):
                     h, x, u = model(graph, node_features, graph.ndata['nbody_pos'], edge_features, graph_features)
                     loss = loss_fcn(x, graph.ndata['hydro_pos'])
                     loss_sum += loss.item()
-                wandb.log({'val_loss': loss_sum / len(val_data)})
+                val_loss = loss_sum / len(val_data)
+                wandb.log({'val_loss': val_loss})
+                if val_loss < best_val_loss:
+                    print("New best val loss; Saving")
+                    best_val_loss = val_loss
+                    torch.save(model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
+                wandb.log({'best_val_loss': best_val_loss})
 
 if __name__ == "__main__":
     main()

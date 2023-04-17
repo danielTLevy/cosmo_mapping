@@ -165,17 +165,21 @@ class EGNNConv(nn.Module):
 
             h_neigh, x_neigh = graph.ndata['h_neigh'], graph.ndata['x_neigh']
 
-            h = self.node_mlp(
-                torch.cat([node_feat, h_neigh, u.expand(n_nodes, -1)], dim=-1)
-            )
-
-            u = self.graph_mlp(torch.cat([u, h.mean(dim=0, keepdim=True)], dim=-1))
+            if u is not None:
+                h = self.node_mlp(
+                    torch.cat([node_feat, h_neigh, u.expand(n_nodes, -1)], dim=-1)
+                )
+            else:
+                h = self.node_mlp(
+                    torch.cat([node_feat, h_neigh], dim=-1)
+                )
+            if u is not None:
+                u = self.graph_mlp(torch.cat([u, h.mean(dim=0, keepdim=True)], dim=-1))
             x = coord_feat + x_neigh
             
             return h, x, u
 
 
-# %%
 class EGNN(nn.Module):
     def __init__(self, in_node_dim, mlp_h_dim, hidden_node_dim, n_layers=3, edge_feat_size=0, graph_feat_size=0):
         super().__init__()
@@ -190,4 +194,3 @@ class EGNN(nn.Module):
         for egnnconv in self.egnnconvs:
             h, x, u = egnnconv(graph, h, x, edge_feat=edge_feat, graph_feat=u)
         return h, x, u
-# %%

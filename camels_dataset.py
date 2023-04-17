@@ -7,6 +7,7 @@ import numpy as np
 import csv
 from tqdm import tqdm
 from utils import periodic_difference_numpy
+from torch.utils.data import Dataset
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -26,12 +27,14 @@ COSMO_PARAM_KEYS = {
 }
 
 class CamelsDataset(DGLDataset):
-    def __init__(self, data_path, threshold = 0.1, suite='SIMBA', sim_set='CV'):
+    def __init__(self, data_path, threshold = 0.1,
+                 suite='SIMBA', sim_set='CV', debug=False):
         self.box_size = 25000
         self.data_path = data_path
         self.suite = suite
         self.sim_set = sim_set
         self.threshold = threshold
+        self.debug = debug
         super().__init__(name='self.suite' + '_' + 'self.sim_set')
 
     def match_indices(self, nbody_dict, hydro_dict, simulation):
@@ -119,6 +122,7 @@ class CamelsDataset(DGLDataset):
         graph.ndata['nbody_pos'] = torch.from_numpy(nbody_pos).float().to(device)
         graph.ndata['hydro_pos'] = torch.from_numpy(hydro_pos).float().to(device)
         graph.ndata['nbody_mass'] = torch.from_numpy(nbody_dict['Mass']).float().to(device)[:,None]
+        graph.ndata['hydro_mass'] = torch.from_numpy(hydro_dict['Mass']).float().to(device)[:,None]
         graph.ndata['nbody_norm_log_mass'] = self.norm_log(graph.ndata['nbody_mass'])
         graph.ndata['nbody_vel_sqr'] = torch.from_numpy(np.sum(nbody_dict['Vel']**2, axis=1)).float().to(device)[:,None]
         graph.ndata['nbody_norm_log_vel_sqr'] = self.norm_log(graph.ndata['nbody_vel_sqr'])
@@ -146,7 +150,10 @@ class CamelsDataset(DGLDataset):
         self.graphs = []
         self.get_cosmo_params()
         print("Processing graphs...")
-        for i in tqdm(range(NUM_SIMS[self.sim_set])):
+        num_sims = NUM_SIMS[self.sim_set]
+        if self.debug:
+            num_sims = 10
+        for i in tqdm(range(num_sims)):
             simulation = self.sim_set + '_' + str(i)
             nbody_dict, hydro_dict = self.get_data(simulation)
             graph = self.make_graph_from_dicts(nbody_dict, hydro_dict)
@@ -159,3 +166,5 @@ class CamelsDataset(DGLDataset):
     
     def __len__(self):
         return len(self.graphs)
+
+
