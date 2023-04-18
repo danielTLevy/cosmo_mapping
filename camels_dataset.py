@@ -118,15 +118,15 @@ class CamelsDataset(DGLDataset):
         # Get edges from nbody positions
         edges_src, edges_dst = self.get_edges_from_pos(nbody_pos)
         # Create graph with positions and masses as features
-        graph = dgl.graph((edges_src, edges_dst), num_nodes=n_nodes).to(device)
-        graph.ndata['nbody_pos'] = torch.from_numpy(nbody_pos).float().to(device)
-        graph.ndata['hydro_pos'] = torch.from_numpy(hydro_pos).float().to(device)
-        graph.ndata['nbody_mass'] = torch.from_numpy(nbody_dict['Mass']).float().to(device)[:,None]
-        graph.ndata['hydro_mass'] = torch.from_numpy(hydro_dict['Mass']).float().to(device)[:,None]
+        graph = dgl.graph((edges_src, edges_dst), num_nodes=n_nodes)
+        graph.ndata['nbody_pos'] = torch.from_numpy(nbody_pos).float()
+        graph.ndata['hydro_pos'] = torch.from_numpy(hydro_pos).float()
+        graph.ndata['nbody_mass'] = torch.from_numpy(nbody_dict['Mass']).float()[:,None]
+        graph.ndata['hydro_mass'] = torch.from_numpy(hydro_dict['Mass']).float()[:,None]
         graph.ndata['nbody_norm_log_mass'] = self.norm_log(graph.ndata['nbody_mass'])
-        graph.ndata['nbody_vel_sqr'] = torch.from_numpy(np.sum(nbody_dict['Vel']**2, axis=1)).float().to(device)[:,None]
+        graph.ndata['nbody_vel_sqr'] = torch.from_numpy(np.sum(nbody_dict['Vel']**2, axis=1)).float()[:,None]
         graph.ndata['nbody_norm_log_vel_sqr'] = self.norm_log(graph.ndata['nbody_vel_sqr'])
-        graph.edata['nbody_vel_dot_prod'] = torch.from_numpy(np.sum(nbody_dict['Vel'][edges_src] * nbody_dict['Vel'][edges_dst], axis=1))[:,None].float().to(device)
+        graph.edata['nbody_vel_dot_prod'] = torch.from_numpy(np.sum(nbody_dict['Vel'][edges_src] * nbody_dict['Vel'][edges_dst], axis=1))[:,None].float()
         graph.edata['nbody_norm_vel_dot_prod'] = self.norm(graph.edata['nbody_vel_dot_prod'])
         graph = dgl.remove_self_loop(graph)
 
@@ -143,7 +143,7 @@ class CamelsDataset(DGLDataset):
     def add_cosmo_features(self, graph, simulation):
         for param_name in COSMO_PARAM_KEYS:
             graph_property = float(self.cosmo_param_dict[simulation][param_name])
-            setattr(graph, param_name, torch.Tensor([graph_property]).to(device))
+            setattr(graph, param_name, torch.Tensor([graph_property]))
         return graph
 
     def process(self):
@@ -166,5 +166,4 @@ class CamelsDataset(DGLDataset):
     
     def __len__(self):
         return len(self.graphs)
-
 

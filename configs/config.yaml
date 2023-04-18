@@ -8,6 +8,7 @@ training:
   epochs: 300
   val_every: 10
   checkpoint: True
+  debug: False
 
 model:
   model: egnn

@@ -20,7 +20,6 @@ from tqdm import tqdm
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
 def loss_fcn(pred_coord, true_coord, nbody_coord=None):
     dist_hydro = torch.mean(periodic_difference_torch(pred_coord, true_coord)**2)
     loss = dist_hydro
@@ -40,13 +39,24 @@ def setup_wandb(cfg):
     wandb.save('*.txt')
     return cfg
 
+def model_pred(graph, model, loss_fcn):
+    graph_feature_list = [graph.Omega_m, graph.sigma_8, graph.A_SN1, graph.A_AGN1, graph.A_SN2, graph.A_AGN2]
+    graph_features = torch.cat(graph_feature_list)[None, :].to(device)
+    nbody_norm_log_mass = graph.ndata['nbody_norm_log_mass']
+    nbody_vel_sqr = graph.ndata['nbody_norm_log_vel_sqr']
+    node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr], dim=1).to(device)
+    edge_features = graph.edata['nbody_norm_vel_dot_prod']
+    h, x, u = model(graph, node_features, graph.ndata['nbody_pos'], edge_features, graph_features)
+    loss = loss_fcn(x, graph.ndata['hydro_pos'])
+    return x, loss
+
 
 @hydra.main(config_path='configs/', config_name='config')
 def main(cfg: DictConfig):
-    #%%
     cfg = setup_wandb(cfg)
 
-    full_dataset = CamelsDataset(data_path=cfg.dataset.path, threshold=cfg.dataset.threshold, suite=cfg.dataset.suite, sim_set=cfg.dataset.sim_set)
+    full_dataset = CamelsDataset(data_path=cfg.dataset.path, threshold=cfg.dataset.threshold,
+                                 suite=cfg.dataset.suite, sim_set=cfg.dataset.sim_set, debug=cfg.training.debug)
     split_fracs = [1 - cfg.dataset.frac_val - cfg.dataset.frac_test, cfg.dataset.frac_val, cfg.dataset.frac_test]
     train_data, val_data, test_data = dgl.data.utils.split_dataset(full_dataset, split_fracs)
 
@@ -58,8 +68,6 @@ def main(cfg: DictConfig):
     print(f'True difference mean: {true_difference_mean}')
     wandb.run.summary['true_difference_mean'] = true_difference_mean
 
-
-    # %%
     node_feat_dim = 2
     edge_feat_dim = 1
     graph_feat_dim = 6
@@ -74,42 +82,30 @@ def main(cfg: DictConfig):
     loop = tqdm(range(epochs))
     best_val_loss = 1e10
     for epoch in loop:
-        loss_sum = 0
+        train_loss_sum = 0
         # Training
         for graph_i, graph in enumerate(train_data):
+            model.train()
             optimizer.zero_grad()
-            graph_feature_list = [graph.Omega_m, graph.sigma_8, graph.A_SN1, graph.A_AGN1, graph.A_SN2, graph.A_AGN2]
-            graph_features = torch.cat(graph_feature_list)[None, :]
-            nbody_norm_log_mass = graph.ndata['nbody_norm_log_mass']
-            nbody_vel_sqr = graph.ndata['nbody_norm_log_vel_sqr']
-            node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr], dim=1)
-            edge_features = graph.edata['nbody_norm_vel_dot_prod']
-            h, x, u = model(graph, node_features, graph.ndata['nbody_pos'], edge_features, graph_features)
-            loss = loss_fcn(x, graph.ndata['hydro_pos'])
+            x, loss = model_pred(graph.to(device), model, loss_fcn)
             loss.backward()
-            loss_sum += loss.item()
+            train_loss_sum += loss.item()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
             optimizer.step()
-        epoch_loss = loss_sum / len(train_data)
+        epoch_loss = train_loss_sum / len(train_data)
         wandb.log({'epoch': epoch, 'loss': epoch_loss})
         loop.set_description(f"Training Epoch {epoch}")
         loop.set_postfix(loss=epoch_loss)
 
         if epoch % cfg.training.val_every == 0:
             with torch.no_grad():
-                loss_sum = 0
+                val_loss_sum = 0
                 # Validation
                 for graph_i, graph in enumerate(val_data):
-                    graph_feature_list = [graph.Omega_m, graph.sigma_8, graph.A_SN1, graph.A_AGN1, graph.A_SN2, graph.A_AGN2]
-                    graph_features = torch.cat(graph_feature_list)[None, :]
-                    nbody_norm_log_mass = graph.ndata['nbody_norm_log_mass']
-                    nbody_vel_sqr = graph.ndata['nbody_norm_log_vel_sqr']
-                    node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr], dim=1)
-                    edge_features = graph.edata['nbody_norm_vel_dot_prod']
-                    h, x, u = model(graph, node_features, graph.ndata['nbody_pos'], edge_features, graph_features)
-                    loss = loss_fcn(x, graph.ndata['hydro_pos'])
-                    loss_sum += loss.item()
-                val_loss = loss_sum / len(val_data)
+                    model.eval()
+                    x, loss = model_pred(graph.to(device), model, loss_fcn)
+                    val_loss_sum += loss.item()
+                val_loss = val_loss_sum / len(val_data)
                 wandb.log({'val_loss': val_loss})
                 if val_loss < best_val_loss:
                     print("New best val loss; Saving")
