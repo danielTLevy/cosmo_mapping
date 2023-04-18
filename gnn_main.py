@@ -65,8 +65,15 @@ def main(cfg: DictConfig):
         true_loss = loss_fcn(graph.ndata['nbody_pos'], graph.ndata['hydro_pos'])
         true_diff_sum += true_loss.item()
     true_difference_mean = true_diff_sum / len(train_data)
-    print(f'True difference mean: {true_difference_mean}')
+    print(f'True difference mean (train): {true_difference_mean}')
     wandb.run.summary['true_difference_mean'] = true_difference_mean
+    true_val_diff_sum = 0
+    for graph_i, graph in enumerate(val_data):
+        true_val_loss = loss_fcn(graph.ndata['nbody_pos'], graph.ndata['hydro_pos'])
+        true_val_diff_sum += true_val_loss.item()
+    true_val_diff_mean = true_val_diff_sum / len(val_data)
+    print(f'True difference mean (validation): {true_val_diff_mean}')
+    wandb.run.summary['true_val_diff_mean'] = true_val_diff_mean
 
     node_feat_dim = 2
     edge_feat_dim = 1
