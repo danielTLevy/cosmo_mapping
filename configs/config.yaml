@@ -16,9 +16,10 @@ model:
   n_layers: 4
 
 dataset:
-  path: '/network/scratch/t/tara.akhoundsadegh/cosmo_map/'
+  path: '/network/scratch/t/tara.akhoundsadegh/camels_data/'
   suite: 'SIMBA'
   sim_set: 'CV'
   threshold: 0.16
   frac_val: 0.2
   frac_test: 0
+  load: false

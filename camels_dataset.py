@@ -54,12 +54,17 @@ class CamelsDataset(DGLDataset):
         cross_match_frac_mask = (percent_matched>60) & (cross_match == 1)
 
         #selecting only matched haloes
+
+
         for key in nbody_dict.keys():
             nbody_dict[key] = nbody_dict[key][nbody_halo_index]# apply indices arrays to both nbody and hydro so that
-            hydro_dict[key] = hydro_dict[key][hydro_halo_index]#          the arrays are the same length
-
+            #                                                       the arrays are the same length
             #further selecting only haloes that cross matched and share >60% of particles
             nbody_dict[key] = nbody_dict[key][cross_match_frac_mask]
+
+        for key in hydro_dict.keys():
+            # And again for haloes
+            hydro_dict[key] = hydro_dict[key][hydro_halo_index]
             hydro_dict[key] = hydro_dict[key][cross_match_frac_mask]
 
         return nbody_dict, hydro_dict
@@ -76,6 +81,12 @@ class CamelsDataset(DGLDataset):
         nbody_dict = {}
         nbody_dict['Pos'] = nbody_haloes['Group/GroupPos'][:,:]
         nbody_dict['Mass'] = nbody_haloes['Group/GroupMass'][:]
+        nbody_dict['MassCrit200'] = nbody_haloes['Group/Group_M_Crit200'][:]
+        nbody_dict['MassCrit500'] = nbody_haloes['Group/Group_M_Crit500'][:]
+        nbody_dict['MassTopHat200'] = nbody_haloes['Group/Group_M_TopHat200'][:]
+        nbody_dict['RCrit200'] = nbody_haloes['Group/Group_R_Crit200'][:]
+        nbody_dict['RCrit500'] = nbody_haloes['Group/Group_R_Crit500'][:]
+        
         nbody_dict['Vel'] = nbody_haloes['Group/GroupVel'][:,:]
         hydro_dict = {}
         hydro_dict['Pos'] = hydro_haloes['Group/GroupPos'][:,:]
@@ -128,6 +139,11 @@ class CamelsDataset(DGLDataset):
         graph.ndata['nbody_norm_log_vel_sqr'] = self.norm_log(graph.ndata['nbody_vel_sqr'])
         graph.edata['nbody_vel_dot_prod'] = torch.from_numpy(np.sum(nbody_dict['Vel'][edges_src] * nbody_dict['Vel'][edges_dst], axis=1))[:,None].float()
         graph.edata['nbody_norm_vel_dot_prod'] = self.norm(graph.edata['nbody_vel_dot_prod'])
+        graph.ndata['nbody_masscrit200'] = self.norm_log(torch.from_numpy(nbody_dict['MassCrit200']).float()[:,None])
+        graph.ndata['nbody_masscrit500'] = self.norm_log(torch.from_numpy(nbody_dict['MassCrit500']).float()[:,None])
+        graph.ndata['nbody_masstophat200'] = self.norm_log(torch.from_numpy(nbody_dict['MassTopHat200']).float()[:,None])
+        graph.ndata['nbody_rcrit200'] = self.norm_log(torch.from_numpy(nbody_dict['RCrit200']).float()[:,None])
+        graph.ndata['nbody_rcrit500'] = self.norm_log(torch.from_numpy(nbody_dict['RCrit500']).float()[:,None])
         graph = dgl.remove_self_loop(graph)
 
         return graph
@@ -167,3 +183,64 @@ class CamelsDataset(DGLDataset):
     def __len__(self):
         return len(self.graphs)
 
+
+class CamelsDatasetRaw(Dataset):
+    def __init__(self, data_path, suite='SIMBA', sim_set='CV', sim_type ='hydro', debug=False):
+        self.box_size = 25000
+        self.data_path = data_path
+        self.suite = suite
+        self.sim_set = sim_set
+        assert sim_type == 'nbody' or sim_type == 'hydro'
+        self.sim_type = sim_type
+        self.debug = debug
+        self.process()
+
+    def get_data(self, simulation, sim_type):
+        # Load in data
+        halo_filename = f'{self.data_path}/{self.suite}_{self.sim_set}_data/{sim_type}_sim/{simulation}_fof_subhalo_tab_033.hdf5'
+
+        haloes = h5py.File(halo_filename, 'r')
+
+        # Store features in dicts
+        sim_dict = {}
+        sim_dict['Pos'] = haloes['Group/GroupPos'][:,:]
+        sim_dict['Mass'] = haloes['Group/GroupMass'][:]
+        sim_dict['Vel'] = haloes['Group/GroupVel'][:,:]
+
+        # Normalize positions
+        #self.box_size = nbody_haloes["Header"].attrs["BoxSize"]
+        sim_dict['Pos'] = sim_dict['Pos'] / self.box_size
+
+        return sim_dict
+
+
+    def get_cosmo_params(self):
+        cosmo_param_filename = f'{self.data_path}/{self.suite}_{self.sim_set}_data/CosmoAstroSeed_{self.suite}.txt'
+        self.cosmo_param_dict = {}
+        with open(cosmo_param_filename, newline='') as csvfile:
+            reader = csv.DictReader(csvfile, delimiter=' ', skipinitialspace=True)
+            for row in reader:
+                self.cosmo_param_dict[row['#Name']] = row
+
+    def add_cosmo_features(self, sim_dict, simulation):
+        for param_name in COSMO_PARAM_KEYS:
+            graph_property = float(self.cosmo_param_dict[simulation][param_name])
+            sim_dict[param_name] = graph_property
+        return sim_dict
+
+    def process(self):
+        self.sim_dicts = []
+        self.get_cosmo_params()
+        num_sims = NUM_SIMS[self.sim_set]
+        if self.debug:
+            num_sims = 10
+        for i in tqdm(range(num_sims)):
+            simulation = self.sim_set + '_' + str(i)
+            sim_dict = self.get_data(simulation, self.sim_type)
+            self.sim_dicts.append(sim_dict)
+
+    def __getitem__(self, i):
+        return self.sim_dicts[i]
+    
+    def __len__(self):
+        return len(self.sim_dicts)
