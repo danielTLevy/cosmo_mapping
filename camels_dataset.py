@@ -26,6 +26,8 @@ COSMO_PARAM_KEYS = {
     "seed"
 }
 
+eps = 1e-8
+
 class CamelsDataset(DGLDataset):
     def __init__(self, data_path, threshold = 0.1,
                  suite='SIMBA', sim_set='CV', debug=False):
@@ -115,11 +117,17 @@ class CamelsDataset(DGLDataset):
         return edges_src, edges_dst
 
     def norm_log(self, x):
+        # For normalizing values with a long tail
+        # any values set to zero are set to the minimum non-zero value
         log_x = torch.log(x)
-        return (log_x - (log_x.mean())) / (log_x.std())
+        log_x = torch.log(x)
+        min_val = log_x[~torch.isinf(log_x)].min()
+        log_x[torch.isinf(log_x)] = min_val
+        return (log_x - (log_x.mean())) / (eps + log_x.std())
 
     def norm(self, x):
-        return (x - (x.mean())) / (x.std())
+        # For normalizing datat that's roughly normally distributed
+        return (x - (x.mean())) / (eps + x.std())
 
     def make_graph_from_dicts(self, nbody_dict, hydro_dict):
         nbody_pos = nbody_dict['Pos']

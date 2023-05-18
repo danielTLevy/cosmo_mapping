@@ -44,7 +44,15 @@ def model_pred(graph, model, loss_fcn):
     graph_features = torch.cat(graph_feature_list)[None, :].to(device)
     nbody_norm_log_mass = graph.ndata['nbody_norm_log_mass']
     nbody_vel_sqr = graph.ndata['nbody_norm_log_vel_sqr']
-    node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr], dim=1).to(device)
+    nbody_masscrit200 = graph.ndata['nbody_masscrit200']
+    nbody_masscrit500 = graph.ndata['nbody_masscrit500']
+    nbody_masstophat200 = graph.ndata['nbody_masstophat200']
+    nbody_rcrit200 = graph.ndata['nbody_rcrit200']
+    nbody_rcrit500 = graph.ndata['nbody_rcrit500']
+
+    node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr, nbody_masscrit200,
+                               nbody_masscrit500, nbody_masstophat200,
+                               nbody_rcrit200, nbody_rcrit500], dim=1).to(device)
     edge_features = graph.edata['nbody_norm_vel_dot_prod']
     h, x, u = model(graph, node_features, graph.ndata['nbody_pos'], edge_features, graph_features)
     loss = loss_fcn(x, graph.ndata['hydro_pos'])
@@ -54,9 +62,11 @@ def model_pred(graph, model, loss_fcn):
 @hydra.main(config_path='configs/', config_name='config')
 def main(cfg: DictConfig):
     cfg = setup_wandb(cfg)
-
-    full_dataset = CamelsDataset(data_path=cfg.dataset.path, threshold=cfg.dataset.threshold,
-                                 suite=cfg.dataset.suite, sim_set=cfg.dataset.sim_set, debug=cfg.training.debug)
+    if not cfg.dataset.load:
+        full_dataset = CamelsDataset(data_path=cfg.dataset.path, threshold=cfg.dataset.threshold,
+                                    suite=cfg.dataset.suite, sim_set=cfg.dataset.sim_set, debug=cfg.training.debug)
+    else:
+        full_dataset = torch.load('/home/mila/d/daniel.levy/scratch/cosmo_mapping/processed_data/threshold{}/full_dataset.pt'.format(str(int(100*cfg.dataset.threshold))))
     split_fracs = [1 - cfg.dataset.frac_val - cfg.dataset.frac_test, cfg.dataset.frac_val, cfg.dataset.frac_test]
     train_data, val_data, test_data = dgl.data.utils.split_dataset(full_dataset, split_fracs)
 
@@ -75,7 +85,7 @@ def main(cfg: DictConfig):
     print(f'True difference mean (validation): {true_val_diff_mean}')
     wandb.run.summary['true_val_diff_mean'] = true_val_diff_mean
 
-    node_feat_dim = 2
+    node_feat_dim = 7
     edge_feat_dim = 1
     graph_feat_dim = 6
     if cfg.model.model == 'egnn':
