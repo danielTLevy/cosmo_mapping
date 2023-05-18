@@ -158,7 +158,7 @@ class EGNNConv(nn.Module):
             # normalize coordinate difference
             #print("graph.edata['radial']", graph.edata['radial'])
 
-            graph.edata['x_diff'] = graph.edata['x_diff'] #/ ((graph.edata['radial'] +  self.eps).sqrt() + self.eps)
+            graph.edata['x_diff'] = graph.edata['x_diff'] / ((graph.edata['radial'] +  self.eps).sqrt() + self.eps)
             graph.apply_edges(self.message)
             graph.update_all(fn.copy_e('msg_x', 'm'), fn.mean('m', 'x_neigh'))
             graph.update_all(fn.copy_e('msg_h', 'm'), fn.sum('m', 'h_neigh'))
