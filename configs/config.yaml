@@ -9,6 +9,7 @@ training:
   val_every: 10
   checkpoint: True
   debug: False
+  clip_grad_norm: 1
 
 model:
   model: egnn

@@ -110,7 +110,8 @@ def main(cfg: DictConfig):
             x, loss = model_pred(graph.to(device), model, loss_fcn, use_extra_feats=cfg.model.use_extra_feats)
             loss.backward()
             train_loss_sum += loss.item()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
+            if cfg.training.clip_grad_norm > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), cfg.training.clip_grad_norm)
             optimizer.step()
         epoch_loss = train_loss_sum / len(train_data)
         wandb.log({'epoch': epoch, 'loss': epoch_loss})
