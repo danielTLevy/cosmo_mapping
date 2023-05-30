@@ -39,7 +39,7 @@ def setup_wandb(cfg):
     wandb.save('*.txt')
     return cfg
 
-def model_pred(graph, model, loss_fcn):
+def model_pred(graph, model, loss_fcn, use_extra_feats=False):
     graph_feature_list = [graph.Omega_m, graph.sigma_8, graph.A_SN1, graph.A_AGN1, graph.A_SN2, graph.A_AGN2]
     graph_features = torch.cat(graph_feature_list)[None, :].to(device)
     nbody_norm_log_mass = graph.ndata['nbody_norm_log_mass']
@@ -50,9 +50,12 @@ def model_pred(graph, model, loss_fcn):
     nbody_rcrit200 = graph.ndata['nbody_rcrit200']
     nbody_rcrit500 = graph.ndata['nbody_rcrit500']
 
-    node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr, nbody_masscrit200,
-                               nbody_masscrit500, nbody_masstophat200,
-                               nbody_rcrit200, nbody_rcrit500], dim=1).to(device)
+    if use_extra_feats:
+        node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr, nbody_masscrit200,
+                                nbody_masscrit500, nbody_masstophat200,
+                                nbody_rcrit200, nbody_rcrit500], dim=1).to(device)
+    else:
+        node_features = torch.cat([nbody_norm_log_mass, nbody_vel_sqr], 1).to(device)
     edge_features = graph.edata['nbody_norm_vel_dot_prod']
     h, x, u = model(graph, node_features, graph.ndata['nbody_pos'], edge_features, graph_features)
     loss = loss_fcn(x, graph.ndata['hydro_pos'])
@@ -85,7 +88,7 @@ def main(cfg: DictConfig):
     print(f'True difference mean (validation): {true_val_diff_mean}')
     wandb.run.summary['true_val_diff_mean'] = true_val_diff_mean
 
-    node_feat_dim = 7
+    node_feat_dim = 7 if cfg.model.use_extra_feats else 2
     edge_feat_dim = 1
     graph_feat_dim = 6
     if cfg.model.model == 'egnn':
@@ -104,7 +107,7 @@ def main(cfg: DictConfig):
         for graph_i, graph in enumerate(train_data):
             model.train()
             optimizer.zero_grad()
-            x, loss = model_pred(graph.to(device), model, loss_fcn)
+            x, loss = model_pred(graph.to(device), model, loss_fcn, use_extra_feats=cfg.model.use_extra_feats)
             loss.backward()
             train_loss_sum += loss.item()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
@@ -120,7 +123,7 @@ def main(cfg: DictConfig):
                 # Validation
                 for graph_i, graph in enumerate(val_data):
                     model.eval()
-                    x, loss = model_pred(graph.to(device), model, loss_fcn)
+                    x, loss = model_pred(graph.to(device), model, loss_fcn, use_extra_feats=cfg.model.use_extra_feats)
                     val_loss_sum += loss.item()
                 val_loss = val_loss_sum / len(val_data)
                 wandb.log({'val_loss': val_loss})
