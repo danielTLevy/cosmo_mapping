@@ -29,14 +29,16 @@ COSMO_PARAM_KEYS = {
 eps = 1e-8
 
 class CamelsDataset(DGLDataset):
-    def __init__(self, data_path, threshold = 0.1,
-                 suite='SIMBA', sim_set='CV', debug=False):
+    def __init__(self, data_path, threshold=0.1,
+                 suite='SIMBA', sim_set='CV', debug=False, overfit=False, threshold_type='dist'):
         self.box_size = 25000
         self.data_path = data_path
         self.suite = suite
         self.sim_set = sim_set
         self.threshold = threshold
-        self.debug = debug
+        self.threshold_type = threshold_type
+        self.debug = debug # Train/test/validate on 10 different sims
+        self.overfit = overfit # Train/test/validate on the same sim
         super().__init__(name='self.suite' + '_' + 'self.sim_set')
 
     def match_indices(self, nbody_dict, hydro_dict, simulation):
@@ -115,6 +117,20 @@ class CamelsDataset(DGLDataset):
         neigh_matrix =  dist_matrix < self.threshold
         edges_src, edges_dst = neigh_matrix.nonzero()
         return edges_src, edges_dst
+    
+    def get_edges_from_force(self, pos_matrix, masses):
+        '''
+        Returns edges based on the force between particles
+        Forces calculated as F = G*m1*m2/r^2
+        '''
+        differences = periodic_difference_numpy(pos_matrix[:, None],  pos_matrix[None,:], 1)
+        dist_matrix = np.linalg.norm(differences, axis=-1)
+        force_matrix = masses[:, None]*masses[None, :]/(dist_matrix**2)
+        force_matrix[force_matrix==np.inf] = 0
+        force_matrix[force_matrix==np.nan] = 0
+        neigh_matrix =  force_matrix > self.threshold
+        edges_src, edges_dst = neigh_matrix.nonzero()
+        return edges_src, edges_dst
 
     def norm_log(self, x):
         # For normalizing values with a long tail
@@ -132,10 +148,14 @@ class CamelsDataset(DGLDataset):
     def make_graph_from_dicts(self, nbody_dict, hydro_dict):
         nbody_pos = nbody_dict['Pos']
         hydro_pos = hydro_dict['Pos']
+        nbody_masses = nbody_dict['Mass']
         n_nodes = nbody_pos.shape[0]
         assert n_nodes == hydro_pos.shape[0]
         # Get edges from nbody positions
-        edges_src, edges_dst = self.get_edges_from_pos(nbody_pos)
+        if self.threshold_type == 'dist':
+            edges_src, edges_dst = self.get_edges_from_pos(nbody_pos)
+        elif self.threshold_type == 'force':
+            edges_src, edges_dst = self.get_edges_from_force(nbody_pos, nbody_masses)
         # Create graph with positions and masses as features
         graph = dgl.graph((edges_src, edges_dst), num_nodes=n_nodes)
         graph.ndata['nbody_pos'] = torch.from_numpy(nbody_pos).float()
@@ -177,6 +197,8 @@ class CamelsDataset(DGLDataset):
         num_sims = NUM_SIMS[self.sim_set]
         if self.debug:
             num_sims = 10
+        if self.overfit:
+            num_sims = 1
         for i in tqdm(range(num_sims)):
             simulation = self.sim_set + '_' + str(i)
             nbody_dict, hydro_dict = self.get_data(simulation)

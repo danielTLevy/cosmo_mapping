@@ -67,11 +67,14 @@ def main(cfg: DictConfig):
     cfg = setup_wandb(cfg)
     if not cfg.dataset.load:
         full_dataset = CamelsDataset(data_path=cfg.dataset.path, threshold=cfg.dataset.threshold,
-                                    suite=cfg.dataset.suite, sim_set=cfg.dataset.sim_set, debug=cfg.training.debug)
+                                    suite=cfg.dataset.suite, sim_set=cfg.dataset.sim_set, debug=cfg.training.debug, overfit=cfg.training.overfit,
+                                    threshold_type=cfg.dataset.threshold_type)
     else:
         full_dataset = torch.load('/home/mila/d/daniel.levy/scratch/cosmo_mapping/processed_data/threshold{}/full_dataset.pt'.format(str(int(100*cfg.dataset.threshold))))
     split_fracs = [1 - cfg.dataset.frac_val - cfg.dataset.frac_test, cfg.dataset.frac_val, cfg.dataset.frac_test]
     train_data, val_data, test_data = dgl.data.utils.split_dataset(full_dataset, split_fracs)
+    if cfg.training.overfit:
+        train_data = val_data = test_data = full_dataset
 
     true_diff_sum = 0
     for graph_i, graph in enumerate(train_data):
@@ -94,7 +97,8 @@ def main(cfg: DictConfig):
     if cfg.model.model == 'egnn':
         model = EGNN(node_feat_dim, cfg.model.width, cfg.model.width,
                      n_layers=cfg.model.n_layers, edge_feat_size=edge_feat_dim, graph_feat_size=graph_feat_dim).to(device)
-
+    # Log number of parameters
+    wandb.run.summary['n_params'] = sum(p.numel() for p in model.parameters() if p.requires_grad)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg.training.lr)
 
     epochs = cfg.training.epochs

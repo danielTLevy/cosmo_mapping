@@ -10,6 +10,7 @@ training:
   checkpoint: True
   debug: False
   clip_grad_norm: 1
+  overfit: False
 
 model:
   model: egnn
@@ -25,3 +26,4 @@ dataset:
   frac_val: 0.2
   frac_test: 0
   load: false
+  threshold_type: 'dist'
